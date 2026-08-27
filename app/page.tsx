@@ -8,6 +8,7 @@ import { convertPdfToImages } from "@/lib/pdf-to-images";
 import { convertImageToPages } from "@/lib/image-to-dataurl";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { StageIndicator } from "@/components/StageIndicator";
+import { AnswerBoxDebugOverlay } from "@/components/AnswerBoxDebugOverlay";
 import type { PageImage } from "@/lib/types";
 
 type FileKind = "questionPaper" | "answerSheet";
@@ -24,15 +25,18 @@ export default function Home() {
   const questionPaper = useAppStore((state) => state.questionPaper);
   const answerSheet = useAppStore((state) => state.answerSheet);
   const questions = useAppStore((state) => state.questions);
+  const answers = useAppStore((state) => state.answers);
   const setQuestionPaper = useAppStore((state) => state.setQuestionPaper);
   const setAnswerSheet = useAppStore((state) => state.setAnswerSheet);
   const setQuestions = useAppStore((state) => state.setQuestions);
+  const setAnswers = useAppStore((state) => state.setAnswers);
   const setProcessingStage = useAppStore((state) => state.setProcessingStage);
   const processingStage = useAppStore((state) => state.processingStage);
 
   const [questionPaperError, setQuestionPaperError] = useState<string | null>(null);
   const [answerSheetError, setAnswerSheetError] = useState<string | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [answersError, setAnswersError] = useState<string | null>(null);
 
   const isConvertingQuestionPaper =
     questionPaper.fileName !== null && questionPaper.pages.length === 0;
@@ -42,6 +46,8 @@ export default function Home() {
   const bothReady = questionPaper.pages.length > 0 && answerSheet.pages.length > 0;
   const isBusy = isConvertingQuestionPaper || isConvertingAnswerSheet;
   const isExtractingQuestions = processingStage === "extracting-questions";
+  const isExtractingAnswers = processingStage === "extracting-answers";
+  const isExtracting = isExtractingQuestions || isExtractingAnswers;
 
   useEffect(() => {
     if (!isConvertingQuestionPaper && !isConvertingAnswerSheet) {
@@ -90,7 +96,7 @@ export default function Home() {
     [setQuestionPaper, setAnswerSheet]
   );
 
-  const handleStartMapping = useCallback(async () => {
+  const handleExtractQuestions = useCallback(async (): Promise<boolean> => {
     setExtractionError(null);
     setProcessingStage("extracting-questions");
 
@@ -109,14 +115,59 @@ export default function Home() {
       }
 
       setQuestions(data.questions);
+      return true;
     } catch (error) {
       setExtractionError(
         error instanceof Error ? error.message : "Failed to extract questions."
       );
-    } finally {
-      setProcessingStage("idle");
+      return false;
     }
   }, [questionPaper.pages, setProcessingStage, setQuestions]);
+
+  const handleExtractAnswers = useCallback(async (): Promise<boolean> => {
+    setAnswersError(null);
+    setProcessingStage("extracting-answers");
+
+    try {
+      const response = await fetch("/api/extract-answers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pages: answerSheet.pages.map((page) => ({ dataUrl: page.dataUrl })),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to extract answers.");
+      }
+
+      setAnswers(data.answers);
+      return true;
+    } catch (error) {
+      setAnswersError(
+        error instanceof Error ? error.message : "Failed to extract answers."
+      );
+      return false;
+    }
+  }, [answerSheet.pages, setProcessingStage, setAnswers]);
+
+  const handleStartMapping = useCallback(async () => {
+    const questionsOk = await handleExtractQuestions();
+    if (!questionsOk) {
+      setProcessingStage("idle");
+      return;
+    }
+
+    // Sequential by design: don't start answer extraction until questions succeed.
+    await handleExtractAnswers();
+    setProcessingStage("idle");
+  }, [handleExtractQuestions, handleExtractAnswers, setProcessingStage]);
+
+  const handleRetryAnswers = useCallback(async () => {
+    await handleExtractAnswers();
+    setProcessingStage("idle");
+  }, [handleExtractAnswers, setProcessingStage]);
 
   return (
     <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-canvas to-canvas-to px-6 py-12">
@@ -163,10 +214,10 @@ export default function Home() {
           <button
             type="button"
             onClick={handleStartMapping}
-            disabled={!bothReady || isBusy || isExtractingQuestions}
+            disabled={!bothReady || isBusy || isExtracting}
             className={cn(
               "flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors",
-              bothReady && !isBusy && !isExtractingQuestions
+              bothReady && !isBusy && !isExtracting
                 ? "bg-ink text-white hover:bg-ink-soft"
                 : "cursor-not-allowed bg-muted-bg text-muted"
             )}
@@ -174,6 +225,11 @@ export default function Home() {
             {isExtractingQuestions ? (
               <>
                 Extracting Questions…
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </>
+            ) : isExtractingAnswers ? (
+              <>
+                Extracting Answers…
                 <Loader2 className="h-4 w-4 animate-spin" />
               </>
             ) : (
@@ -224,6 +280,78 @@ export default function Home() {
                 </li>
               ))}
             </ol>
+          </div>
+        )}
+
+        {answersError && (
+          <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-danger/25 bg-danger-bg px-4 py-3 text-sm text-danger">
+            <span>{answersError}</span>
+            <button
+              type="button"
+              onClick={handleRetryAnswers}
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        )}
+
+        {answers.length > 0 && (
+          <div className="mt-8 border-t border-border pt-6">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
+              Extracted Answers (temporary preview)
+            </h2>
+            <ol className="flex flex-col gap-2">
+              {answers.map((answer) => (
+                <li
+                  key={answer.id}
+                  className="rounded-lg border border-border bg-muted-bg px-3 py-2 text-sm"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-semibold text-ink">
+                      {answer.rawLabel || (
+                        <span className="italic text-muted">unlabeled</span>
+                      )}
+                    </span>
+                    <span className="text-xs text-muted">
+                      norm: &quot;{answer.normalizedLabel}&quot;
+                    </span>
+                  </div>
+                  <p className="mt-1 text-ink-soft">
+                    {answer.text.slice(0, 100)}
+                    {answer.text.length > 100 ? "…" : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {answer.segments.length} segment
+                    {answer.segments.length === 1 ? "" : "s"}:{" "}
+                    {answer.segments
+                      .map(
+                        (segment) =>
+                          `Page ${segment.pageIndex}, box: [${segment.box_2d.join(", ")}]`
+                      )
+                      .join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {answers.length > 0 && answerSheet.pages[0] && (
+          <div className="mt-8 border-t border-border pt-6">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
+              Bounding Box Debug Overlay (answer sheet, page 1)
+            </h2>
+            <p className="mb-3 text-xs text-muted">
+              Red boxes should land on the handwritten answer regions, not the printed
+              labels.
+            </p>
+            <AnswerBoxDebugOverlay
+              page={answerSheet.pages[0]}
+              answers={answers}
+              pageIndex={0}
+            />
           </div>
         )}
       </div>
