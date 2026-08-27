@@ -5,6 +5,7 @@ import type {
   ProcessingStage,
   Question,
 } from "./types";
+import type { MatchResult } from "./matching";
 
 type AppState = {
   questionPaper: FileSet;
@@ -12,6 +13,7 @@ type AppState = {
   questions: Question[];
   answers: Answer[];
   mapping: Record<string, string>;
+  matchResult: MatchResult | null;
   processingStage: ProcessingStage;
   selectedQuestionId: string | null;
   error: string | null;
@@ -21,6 +23,7 @@ type AppState = {
   setQuestions: (questions: Question[]) => void;
   setAnswers: (answers: Answer[]) => void;
   setMapping: (mapping: Record<string, string>) => void;
+  setMatchResult: (matchResult: MatchResult | null) => void;
   setProcessingStage: (stage: ProcessingStage) => void;
   setSelectedQuestionId: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -39,6 +42,7 @@ const initialState = {
   questions: [],
   answers: [],
   mapping: {},
+  matchResult: null,
   processingStage: "idle" as ProcessingStage,
   selectedQuestionId: null,
   error: null,
@@ -52,6 +56,7 @@ export const useAppStore = create<AppState>((set) => ({
   setQuestions: (questions) => set({ questions }),
   setAnswers: (answers) => set({ answers }),
   setMapping: (mapping) => set({ mapping }),
+  setMatchResult: (matchResult) => set({ matchResult }),
   setProcessingStage: (processingStage) => set({ processingStage }),
   setSelectedQuestionId: (selectedQuestionId) => set({ selectedQuestionId }),
   setError: (error) => set({ error }),

@@ -9,7 +9,8 @@ import { convertImageToPages } from "@/lib/image-to-dataurl";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { StageIndicator } from "@/components/StageIndicator";
 import { AnswerBoxDebugOverlay } from "@/components/AnswerBoxDebugOverlay";
-import type { PageImage } from "@/lib/types";
+import { matchAnswersToQuestions } from "@/lib/matching";
+import type { Answer, PageImage, Question } from "@/lib/types";
 
 type FileKind = "questionPaper" | "answerSheet";
 
@@ -26,10 +27,13 @@ export default function Home() {
   const answerSheet = useAppStore((state) => state.answerSheet);
   const questions = useAppStore((state) => state.questions);
   const answers = useAppStore((state) => state.answers);
+  const matchResult = useAppStore((state) => state.matchResult);
   const setQuestionPaper = useAppStore((state) => state.setQuestionPaper);
   const setAnswerSheet = useAppStore((state) => state.setAnswerSheet);
   const setQuestions = useAppStore((state) => state.setQuestions);
   const setAnswers = useAppStore((state) => state.setAnswers);
+  const setMapping = useAppStore((state) => state.setMapping);
+  const setMatchResult = useAppStore((state) => state.setMatchResult);
   const setProcessingStage = useAppStore((state) => state.setProcessingStage);
   const processingStage = useAppStore((state) => state.processingStage);
 
@@ -96,7 +100,7 @@ export default function Home() {
     [setQuestionPaper, setAnswerSheet]
   );
 
-  const handleExtractQuestions = useCallback(async (): Promise<boolean> => {
+  const handleExtractQuestions = useCallback(async (): Promise<Question[] | null> => {
     setExtractionError(null);
     setProcessingStage("extracting-questions");
 
@@ -115,16 +119,16 @@ export default function Home() {
       }
 
       setQuestions(data.questions);
-      return true;
+      return data.questions as Question[];
     } catch (error) {
       setExtractionError(
         error instanceof Error ? error.message : "Failed to extract questions."
       );
-      return false;
+      return null;
     }
   }, [questionPaper.pages, setProcessingStage, setQuestions]);
 
-  const handleExtractAnswers = useCallback(async (): Promise<boolean> => {
+  const handleExtractAnswers = useCallback(async (): Promise<Answer[] | null> => {
     setAnswersError(null);
     setProcessingStage("extracting-answers");
 
@@ -143,31 +147,51 @@ export default function Home() {
       }
 
       setAnswers(data.answers);
-      return true;
+      return data.answers as Answer[];
     } catch (error) {
       setAnswersError(
         error instanceof Error ? error.message : "Failed to extract answers."
       );
-      return false;
+      return null;
     }
   }, [answerSheet.pages, setProcessingStage, setAnswers]);
 
+  const runMatching = useCallback(
+    (matchQuestions: Question[], matchAnswers: Answer[]) => {
+      setProcessingStage("mapping");
+      const result = matchAnswersToQuestions(matchQuestions, matchAnswers);
+      setMapping(result.mapping);
+      setMatchResult(result);
+      setProcessingStage("done");
+    },
+    [setProcessingStage, setMapping, setMatchResult]
+  );
+
   const handleStartMapping = useCallback(async () => {
-    const questionsOk = await handleExtractQuestions();
-    if (!questionsOk) {
+    const extractedQuestions = await handleExtractQuestions();
+    if (!extractedQuestions) {
       setProcessingStage("idle");
       return;
     }
 
     // Sequential by design: don't start answer extraction until questions succeed.
-    await handleExtractAnswers();
-    setProcessingStage("idle");
-  }, [handleExtractQuestions, handleExtractAnswers, setProcessingStage]);
+    const extractedAnswers = await handleExtractAnswers();
+    if (!extractedAnswers) {
+      setProcessingStage("idle");
+      return;
+    }
+
+    runMatching(extractedQuestions, extractedAnswers);
+  }, [handleExtractQuestions, handleExtractAnswers, runMatching, setProcessingStage]);
 
   const handleRetryAnswers = useCallback(async () => {
-    await handleExtractAnswers();
-    setProcessingStage("idle");
-  }, [handleExtractAnswers, setProcessingStage]);
+    const extractedAnswers = await handleExtractAnswers();
+    if (!extractedAnswers) {
+      setProcessingStage("idle");
+      return;
+    }
+    runMatching(questions, extractedAnswers);
+  }, [handleExtractAnswers, questions, runMatching, setProcessingStage]);
 
   return (
     <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-canvas to-canvas-to px-6 py-12">
@@ -352,6 +376,109 @@ export default function Home() {
               answers={answers}
               pageIndex={0}
             />
+          </div>
+        )}
+
+        {matchResult && (
+          <div className="mt-8 border-t border-border pt-6">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
+              Matching Results (temporary preview)
+            </h2>
+
+            <div className="mb-4 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-muted-bg px-3 py-1 font-medium text-ink-soft">
+                {questions.length} questions
+              </span>
+              <span className="rounded-full bg-success-bg px-3 py-1 font-medium text-success">
+                {Object.keys(matchResult.mapping).length} matched
+              </span>
+              <span className="rounded-full bg-warning-bg px-3 py-1 font-medium text-warning">
+                {matchResult.unansweredQuestionIds.length} unanswered
+              </span>
+              <span className="rounded-full bg-danger-bg px-3 py-1 font-medium text-danger">
+                {matchResult.unmatchedAnswerIds.length} unmatched answers
+              </span>
+            </div>
+
+            {matchResult.unansweredQuestionIds.length > 0 && (
+              <div className="mb-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  Unanswered Questions
+                </h3>
+                <ul className="flex flex-col gap-1.5">
+                  {matchResult.unansweredQuestionIds.map((questionId) => {
+                    const question = questions.find((q) => q.id === questionId);
+                    if (!question) return null;
+                    return (
+                      <li
+                        key={questionId}
+                        className="rounded-lg border border-warning/25 bg-warning-bg px-3 py-2 text-sm text-ink-soft"
+                      >
+                        <span className="font-semibold text-ink">
+                          {question.number}
+                        </span>{" "}
+                        {question.text.slice(0, 100)}
+                        {question.text.length > 100 ? "…" : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {matchResult.unmatchedAnswerIds.length > 0 && (
+              <div className="mb-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  Unmatched / Orphan Answers
+                </h3>
+                <ul className="flex flex-col gap-1.5">
+                  {matchResult.unmatchedAnswerIds.map((answerId) => {
+                    const answer = answers.find((a) => a.id === answerId);
+                    if (!answer) return null;
+                    return (
+                      <li
+                        key={answerId}
+                        className="rounded-lg border border-danger/25 bg-danger-bg px-3 py-2 text-sm text-ink-soft"
+                      >
+                        <span className="font-semibold text-ink">
+                          {answer.rawLabel || "(none)"}
+                        </span>{" "}
+                        {answer.text.slice(0, 100)}
+                        {answer.text.length > 100 ? "…" : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {Object.keys(matchResult.mapping).length > 0 && (
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  Matched Pairs
+                </h3>
+                <ul className="flex flex-col gap-1.5">
+                  {Object.entries(matchResult.mapping).map(([questionId, answerId]) => {
+                    const question = questions.find((q) => q.id === questionId);
+                    const answer = answers.find((a) => a.id === answerId);
+                    if (!question || !answer) return null;
+                    return (
+                      <li
+                        key={questionId}
+                        className="rounded-lg border border-success/25 bg-success-bg px-3 py-2 text-sm text-ink-soft"
+                      >
+                        <span className="font-semibold text-ink">
+                          {question.number}
+                        </span>
+                        <span className="mx-2 text-muted">&rarr;</span>
+                        {answer.text.slice(0, 100)}
+                        {answer.text.length > 100 ? "…" : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
