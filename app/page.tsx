@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, GraduationCap } from "lucide-react";
+import { ArrowRight, GraduationCap, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { convertPdfToImages } from "@/lib/pdf-to-images";
@@ -23,13 +23,16 @@ async function convertFileToPages(file: File): Promise<PageImage[]> {
 export default function Home() {
   const questionPaper = useAppStore((state) => state.questionPaper);
   const answerSheet = useAppStore((state) => state.answerSheet);
+  const questions = useAppStore((state) => state.questions);
   const setQuestionPaper = useAppStore((state) => state.setQuestionPaper);
   const setAnswerSheet = useAppStore((state) => state.setAnswerSheet);
+  const setQuestions = useAppStore((state) => state.setQuestions);
   const setProcessingStage = useAppStore((state) => state.setProcessingStage);
   const processingStage = useAppStore((state) => state.processingStage);
 
   const [questionPaperError, setQuestionPaperError] = useState<string | null>(null);
   const [answerSheetError, setAnswerSheetError] = useState<string | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
 
   const isConvertingQuestionPaper =
     questionPaper.fileName !== null && questionPaper.pages.length === 0;
@@ -38,6 +41,7 @@ export default function Home() {
 
   const bothReady = questionPaper.pages.length > 0 && answerSheet.pages.length > 0;
   const isBusy = isConvertingQuestionPaper || isConvertingAnswerSheet;
+  const isExtractingQuestions = processingStage === "extracting-questions";
 
   useEffect(() => {
     if (!isConvertingQuestionPaper && !isConvertingAnswerSheet) {
@@ -86,6 +90,34 @@ export default function Home() {
     [setQuestionPaper, setAnswerSheet]
   );
 
+  const handleStartMapping = useCallback(async () => {
+    setExtractionError(null);
+    setProcessingStage("extracting-questions");
+
+    try {
+      const response = await fetch("/api/extract-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pages: questionPaper.pages.map((page) => ({ dataUrl: page.dataUrl })),
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to extract questions.");
+      }
+
+      setQuestions(data.questions);
+    } catch (error) {
+      setExtractionError(
+        error instanceof Error ? error.message : "Failed to extract questions."
+      );
+    } finally {
+      setProcessingStage("idle");
+    }
+  }, [questionPaper.pages, setProcessingStage, setQuestions]);
+
   return (
     <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-canvas to-canvas-to px-6 py-12">
       <div className="w-full max-w-3xl rounded-3xl bg-surface px-8 py-12 shadow-sm sm:px-14">
@@ -130,22 +162,70 @@ export default function Home() {
         <div className="mt-8 flex flex-col items-center gap-3">
           <button
             type="button"
-            disabled={!bothReady || isBusy}
+            onClick={handleStartMapping}
+            disabled={!bothReady || isBusy || isExtractingQuestions}
             className={cn(
               "flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-colors",
-              bothReady && !isBusy
+              bothReady && !isBusy && !isExtractingQuestions
                 ? "bg-ink text-white hover:bg-ink-soft"
                 : "cursor-not-allowed bg-muted-bg text-muted"
             )}
           >
-            Start Mapping
-            <ArrowRight className="h-4 w-4" />
+            {isExtractingQuestions ? (
+              <>
+                Extracting Questions…
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </>
+            ) : (
+              <>
+                Start Mapping
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
           </button>
           <p className="max-w-sm text-center text-xs text-muted">
             Once both files are uploaded, you&apos;ll be able to map answers with
             questions
           </p>
         </div>
+
+        {extractionError && (
+          <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-danger/25 bg-danger-bg px-4 py-3 text-sm text-danger">
+            <span>{extractionError}</span>
+            <button
+              type="button"
+              onClick={handleStartMapping}
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        )}
+
+        {questions.length > 0 && (
+          <div className="mt-8 border-t border-border pt-6">
+            <h2 className="mb-3 text-sm font-semibold text-ink">
+              Extracted Questions (temporary preview)
+            </h2>
+            <ol className="flex flex-col gap-2">
+              {questions.map((question) => (
+                <li
+                  key={question.id}
+                  className="rounded-lg border border-border bg-muted-bg px-3 py-2 text-sm"
+                >
+                  <span className="font-semibold text-ink">{question.number}</span>{" "}
+                  <span className="text-ink-soft">{question.text}</span>
+                  {question.marks !== null && (
+                    <span className="ml-2 text-xs text-muted">
+                      [{question.marks} marks]
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
       </div>
     </div>
   );
