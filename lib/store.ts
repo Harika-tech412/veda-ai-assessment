@@ -16,6 +16,7 @@ type AppState = {
   matchResult: MatchResult | null;
   processingStage: ProcessingStage;
   selectedQuestionId: string | null;
+  selectedAnswerId: string | null;
   error: string | null;
 
   setQuestionPaper: (fileSet: FileSet) => void;
@@ -26,6 +27,7 @@ type AppState = {
   setMatchResult: (matchResult: MatchResult | null) => void;
   setProcessingStage: (stage: ProcessingStage) => void;
   setSelectedQuestionId: (id: string | null) => void;
+  setSelectedAnswerId: (id: string | null) => void;
   setError: (error: string | null) => void;
   reset: () => void;
 };
@@ -45,6 +47,7 @@ const initialState = {
   matchResult: null,
   processingStage: "idle" as ProcessingStage,
   selectedQuestionId: null,
+  selectedAnswerId: null,
   error: null,
 };
 
@@ -59,6 +62,7 @@ export const useAppStore = create<AppState>((set) => ({
   setMatchResult: (matchResult) => set({ matchResult }),
   setProcessingStage: (processingStage) => set({ processingStage }),
   setSelectedQuestionId: (selectedQuestionId) => set({ selectedQuestionId }),
+  setSelectedAnswerId: (selectedAnswerId) => set({ selectedAnswerId }),
   setError: (error) => set({ error }),
   reset: () => set({ ...initialState }),
 }));
