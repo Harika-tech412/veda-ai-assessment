@@ -26,3 +26,11 @@ export const AnswersResponseSchema = z.object({
   answers: z.array(AnswerSchema),
 });
 export type Answer = z.infer<typeof AnswerSchema>;
+
+export const GradeResultSchema = z.object({
+  score: z.number(),
+  maxScore: z.number(),
+  feedback: z.string(),
+  isCorrect: z.boolean().nullable(), // null when partial/ungradeable (e.g. subjective essay answer)
+});
+export type GradeResult = z.infer<typeof GradeResultSchema>;

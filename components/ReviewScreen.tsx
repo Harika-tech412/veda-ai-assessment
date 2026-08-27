@@ -1,11 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ChevronDown, FileText, RotateCcw } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  FileText,
+  Loader2,
+  MinusCircle,
+  RotateCcw,
+  Sparkles,
+  X,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { HighlightOverlay } from "@/components/HighlightOverlay";
-import type { AnswerSegment } from "@/lib/types";
+import type { AnswerSegment, Question } from "@/lib/types";
+import type { GradeResult } from "@/lib/schemas";
+
+const GRADE_ALL_DELAY_MS = 500;
 
 function FileChip({ label }: { label: string }) {
   return (
@@ -26,6 +40,8 @@ export function ReviewScreen() {
   const questions = useAppStore((state) => state.questions);
   const answers = useAppStore((state) => state.answers);
   const matchResult = useAppStore((state) => state.matchResult);
+  const grades = useAppStore((state) => state.grades);
+  const setGrade = useAppStore((state) => state.setGrade);
   const selectedQuestionId = useAppStore((state) => state.selectedQuestionId);
   const selectedAnswerId = useAppStore((state) => state.selectedAnswerId);
   const setSelectedQuestionId = useAppStore((state) => state.setSelectedQuestionId);
@@ -33,6 +49,13 @@ export function ReviewScreen() {
   const reset = useAppStore((state) => state.reset);
 
   const [unmatchedExpanded, setUnmatchedExpanded] = useState(true);
+  const [gradingQuestionId, setGradingQuestionId] = useState<string | null>(null);
+  const [isGradingAll, setIsGradingAll] = useState(false);
+  const [gradeAllProgress, setGradeAllProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [gradeError, setGradeError] = useState<string | null>(null);
   const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const selectQuestion = useCallback(
@@ -50,6 +73,99 @@ export function ReviewScreen() {
     },
     [setSelectedQuestionId, setSelectedAnswerId]
   );
+
+  const gradeQuestion = useCallback(
+    async (question: Question): Promise<GradeResult> => {
+      const answerId = matchResult?.mapping[question.id];
+      const answer = answerId ? answers.find((a) => a.id === answerId) : undefined;
+
+      if (!answer) {
+        // Unanswered — same short-circuit the API route uses, but skipped
+        // entirely on the client so we never waste a request on it.
+        const result: GradeResult = {
+          score: 0,
+          maxScore: question.marks ?? 1,
+          feedback: "No answer provided.",
+          isCorrect: false,
+        };
+        setGrade(question.id, result);
+        return result;
+      }
+
+      const response = await fetch("/api/grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questionText: question.text,
+          questionMarks: question.marks,
+          answerText: answer.text,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to grade this question.");
+      }
+
+      const result = data as GradeResult;
+      setGrade(question.id, result);
+      return result;
+    },
+    [matchResult, answers, setGrade]
+  );
+
+  const handleGradeOne = useCallback(
+    async (question: Question) => {
+      setGradeError(null);
+      setGradingQuestionId(question.id);
+      try {
+        await gradeQuestion(question);
+      } catch (error) {
+        setGradeError(
+          error instanceof Error ? error.message : "Failed to grade this question."
+        );
+      } finally {
+        setGradingQuestionId(null);
+      }
+    },
+    [gradeQuestion]
+  );
+
+  const handleGradeAll = useCallback(async () => {
+    setGradeError(null);
+    setIsGradingAll(true);
+    setGradeAllProgress({ current: 0, total: questions.length });
+
+    for (let index = 0; index < questions.length; index++) {
+      const question = questions[index];
+      const isAnswered = Boolean(matchResult?.mapping[question.id]);
+
+      try {
+        await gradeQuestion(question);
+      } catch (error) {
+        console.error("[grade-all] failed for question", question.id, error);
+      }
+
+      setGradeAllProgress({ current: index + 1, total: questions.length });
+
+      // Only throttle between real Gemini calls — the unanswered zero-score
+      // path never hits the network, so there's no rate limit to respect.
+      if (isAnswered && index < questions.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, GRADE_ALL_DELAY_MS));
+      }
+    }
+
+    setIsGradingAll(false);
+    setGradeAllProgress(null);
+  }, [questions, matchResult, gradeQuestion]);
+
+  const gradeSummary = useMemo(() => {
+    const gradedEntries = Object.values(grades);
+    if (gradedEntries.length === 0) return null;
+    const scored = gradedEntries.reduce((sum, grade) => sum + grade.score, 0);
+    const possible = gradedEntries.reduce((sum, grade) => sum + grade.maxScore, 0);
+    return { scored, possible };
+  }, [grades]);
 
   const activeAnswer = useMemo(() => {
     if (selectedAnswerId) {
@@ -110,15 +226,62 @@ export function ReviewScreen() {
           <FileChip label={questionPaper.fileName ?? "Question paper"} />
           <FileChip label={answerSheet.fileName ?? "Answer sheet"} />
         </div>
-        <button
-          type="button"
-          onClick={reset}
-          className="flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-semibold text-ink-soft transition-colors hover:bg-muted-bg"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          Start Over
-        </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {gradeSummary && (
+            <span className="rounded-full bg-accent-light px-3 py-1.5 text-xs font-semibold text-accent">
+              {gradeSummary.scored}/{gradeSummary.possible} scored
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={handleGradeAll}
+            disabled={isGradingAll || questions.length === 0}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+              isGradingAll || questions.length === 0
+                ? "cursor-not-allowed bg-muted-bg text-muted"
+                : "bg-accent text-white hover:bg-accent-hover"
+            )}
+          >
+            {isGradingAll ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Grading {gradeAllProgress?.current ?? 0} of {gradeAllProgress?.total ?? 0}…
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" />
+                Grade All
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={reset}
+            className="flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-semibold text-ink-soft transition-colors hover:bg-muted-bg"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Start Over
+          </button>
+        </div>
       </header>
+
+      {gradeError && (
+        <div className="flex items-center justify-between gap-3 border-b border-danger/25 bg-danger-bg px-6 py-2.5 text-sm text-danger">
+          <span>{gradeError}</span>
+          <button
+            type="button"
+            onClick={() => setGradeError(null)}
+            aria-label="Dismiss"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-danger/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-[380px] shrink-0 overflow-y-auto border-r border-border bg-surface">
@@ -133,17 +296,25 @@ export function ReviewScreen() {
             {questions.map((question, index) => {
               const isAnswered = Boolean(matchResult?.mapping[question.id]);
               const isSelected = selectedQuestionId === question.id;
+              const grade = grades[question.id];
+              const isGradingThis = gradingQuestionId === question.id;
 
               return (
-                <li key={question.id}>
+                <li
+                  key={question.id}
+                  className={cn(
+                    "overflow-hidden rounded-xl border transition-colors",
+                    isSelected
+                      ? "border-accent bg-accent-light/30 border-l-4"
+                      : "border-border bg-surface"
+                  )}
+                >
                   <button
                     type="button"
                     onClick={() => selectQuestion(question.id)}
                     className={cn(
-                      "flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
-                      isSelected
-                        ? "border-accent bg-accent-light/30 border-l-4"
-                        : "border-border bg-surface hover:bg-muted-bg"
+                      "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors",
+                      !isSelected && "hover:bg-muted-bg"
                     )}
                   >
                     <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink text-xs font-semibold text-white">
@@ -173,6 +344,48 @@ export function ReviewScreen() {
                       {isAnswered ? "Answered" : "Unanswered"}
                     </span>
                   </button>
+
+                  <div className="border-t border-border/60 px-3 py-2">
+                    {isGradingThis ? (
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Grading…
+                      </div>
+                    ) : grade ? (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          {grade.isCorrect === true && (
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                          )}
+                          {grade.isCorrect === false && (
+                            <XCircle className="h-3.5 w-3.5 shrink-0 text-danger" />
+                          )}
+                          {grade.isCorrect === null && (
+                            <MinusCircle className="h-3.5 w-3.5 shrink-0 text-warning" />
+                          )}
+                          <span className="text-xs font-semibold text-ink">
+                            {grade.score}/{grade.maxScore}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted">{grade.feedback}</p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleGradeOne(question)}
+                        disabled={isGradingAll}
+                        className={cn(
+                          "flex items-center gap-1.5 text-xs font-semibold transition-colors",
+                          isGradingAll
+                            ? "cursor-not-allowed text-muted"
+                            : "text-accent hover:text-accent-hover"
+                        )}
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Grade
+                      </button>
+                    )}
+                  </div>
                 </li>
               );
             })}

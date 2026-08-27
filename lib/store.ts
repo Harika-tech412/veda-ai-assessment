@@ -6,6 +6,7 @@ import type {
   Question,
 } from "./types";
 import type { MatchResult } from "./matching";
+import type { GradeResult } from "./schemas";
 
 type AppState = {
   questionPaper: FileSet;
@@ -14,6 +15,7 @@ type AppState = {
   answers: Answer[];
   mapping: Record<string, string>;
   matchResult: MatchResult | null;
+  grades: Record<string, GradeResult>;
   processingStage: ProcessingStage;
   selectedQuestionId: string | null;
   selectedAnswerId: string | null;
@@ -25,6 +27,7 @@ type AppState = {
   setAnswers: (answers: Answer[]) => void;
   setMapping: (mapping: Record<string, string>) => void;
   setMatchResult: (matchResult: MatchResult | null) => void;
+  setGrade: (questionId: string, result: GradeResult) => void;
   setProcessingStage: (stage: ProcessingStage) => void;
   setSelectedQuestionId: (id: string | null) => void;
   setSelectedAnswerId: (id: string | null) => void;
@@ -45,6 +48,7 @@ const initialState = {
   answers: [],
   mapping: {},
   matchResult: null,
+  grades: {},
   processingStage: "idle" as ProcessingStage,
   selectedQuestionId: null,
   selectedAnswerId: null,
@@ -60,6 +64,8 @@ export const useAppStore = create<AppState>((set) => ({
   setAnswers: (answers) => set({ answers }),
   setMapping: (mapping) => set({ mapping }),
   setMatchResult: (matchResult) => set({ matchResult }),
+  setGrade: (questionId, result) =>
+    set((state) => ({ grades: { ...state.grades, [questionId]: result } })),
   setProcessingStage: (processingStage) => set({ processingStage }),
   setSelectedQuestionId: (selectedQuestionId) => set({ selectedQuestionId }),
   setSelectedAnswerId: (selectedAnswerId) => set({ selectedAnswerId }),
