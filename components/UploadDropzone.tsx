@@ -6,7 +6,8 @@ import { FileText, Image as ImageIcon, Loader2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FileSet } from "@/lib/types";
 
-const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_SIZE_MB = 25;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 
 const ACCEPT = {
   "application/pdf": [".pdf"],
@@ -59,7 +60,7 @@ export function UploadDropzone({
     const rejection = fileRejections[0];
     const code = rejection?.errors[0]?.code;
     if (code === "file-too-large") {
-      setRejectionMessage("File is larger than 10MB.");
+      setRejectionMessage(`File is larger than ${MAX_SIZE_MB}MB.`);
     } else if (code === "file-invalid-type") {
       setRejectionMessage("Only PDF, JPG, or PNG files are supported.");
     } else {
@@ -97,7 +98,7 @@ export function UploadDropzone({
           <p className="text-sm font-semibold text-ink">
             Upload <span className="text-accent">{accentLabel}</span>
           </p>
-          <p className="text-xs text-muted">Max 10MB</p>
+          <p className="text-xs text-muted">Max {MAX_SIZE_MB}MB</p>
         </div>
       )}
 

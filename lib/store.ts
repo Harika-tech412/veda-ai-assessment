@@ -16,6 +16,7 @@ type AppState = {
   mapping: Record<string, string>;
   matchResult: MatchResult | null;
   grades: Record<string, GradeResult>;
+  gradingError: string | null;
   processingStage: ProcessingStage;
   selectedQuestionId: string | null;
   selectedAnswerId: string | null;
@@ -27,7 +28,8 @@ type AppState = {
   setAnswers: (answers: Answer[]) => void;
   setMapping: (mapping: Record<string, string>) => void;
   setMatchResult: (matchResult: MatchResult | null) => void;
-  setGrade: (questionId: string, result: GradeResult) => void;
+  setGrades: (grades: Record<string, GradeResult>) => void;
+  setGradingError: (error: string | null) => void;
   setProcessingStage: (stage: ProcessingStage) => void;
   setSelectedQuestionId: (id: string | null) => void;
   setSelectedAnswerId: (id: string | null) => void;
@@ -49,6 +51,7 @@ const initialState = {
   mapping: {},
   matchResult: null,
   grades: {},
+  gradingError: null,
   processingStage: "idle" as ProcessingStage,
   selectedQuestionId: null,
   selectedAnswerId: null,
@@ -64,8 +67,8 @@ export const useAppStore = create<AppState>((set) => ({
   setAnswers: (answers) => set({ answers }),
   setMapping: (mapping) => set({ mapping }),
   setMatchResult: (matchResult) => set({ matchResult }),
-  setGrade: (questionId, result) =>
-    set((state) => ({ grades: { ...state.grades, [questionId]: result } })),
+  setGrades: (grades) => set((state) => ({ grades: { ...state.grades, ...grades } })),
+  setGradingError: (gradingError) => set({ gradingError }),
   setProcessingStage: (processingStage) => set({ processingStage }),
   setSelectedQuestionId: (selectedQuestionId) => set({ selectedQuestionId }),
   setSelectedAnswerId: (selectedAnswerId) => set({ selectedAnswerId }),

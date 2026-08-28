@@ -34,3 +34,11 @@ export const GradeResultSchema = z.object({
   isCorrect: z.boolean().nullable(), // null when partial/ungradeable (e.g. subjective essay answer)
 });
 export type GradeResult = z.infer<typeof GradeResultSchema>;
+
+export const GradeItemResultSchema = GradeResultSchema.extend({
+  questionId: z.string(),
+});
+export const GradeBatchResponseSchema = z.object({
+  results: z.array(GradeItemResultSchema),
+});
+export type GradeItemResult = z.infer<typeof GradeItemResultSchema>;

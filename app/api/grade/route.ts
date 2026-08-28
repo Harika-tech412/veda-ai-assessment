@@ -1,30 +1,46 @@
 import { NextResponse } from "next/server";
 import { Type } from "@google/genai";
 import { GEMINI_MODEL, getGeminiClient, isRateLimitError } from "@/lib/gemini";
-import { GradeResultSchema } from "@/lib/schemas";
+import { GradeBatchResponseSchema } from "@/lib/schemas";
 
-type GradeRequestBody = {
-  questionText?: string;
-  questionMarks?: number | null;
-  answerText?: string;
+// A large batch of answered questions graded in one call can take a while.
+export const maxDuration = 60;
+
+type GradeBatchItem = {
+  questionId: string;
+  questionText: string;
+  questionMarks: number | null;
+  answerText: string;
 };
 
-function buildPrompt(questionText: string, questionMarks: number | null, answerText: string): string {
-  return `You are grading a student's answer to an exam question.
+type GradeBatchRequestBody = {
+  items?: GradeBatchItem[];
+};
 
-Question: ${questionText}
-Maximum marks available: ${questionMarks ?? "not specified, assume 10"}
-Student's answer: ${answerText}
+function buildPrompt(items: GradeBatchItem[]): string {
+  const questionsBlock = items
+    .map(
+      (item, index) => `Question ${index + 1} (id: "${item.questionId}"):
+Question text: ${item.questionText}
+Maximum marks available: ${item.questionMarks ?? "not specified, assume 10"}
+Student's answer: ${item.answerText}`
+    )
+    .join("\n---\n");
 
-Evaluate the answer and provide:
-1. score: marks awarded, as a number, not exceeding the maximum
-2. maxScore: the maximum marks for this question
-3. feedback: 1-3 sentences of specific, constructive feedback explaining what was right or wrong
-4. isCorrect: true if fully correct, false if fully incorrect, null if partially correct or the question is subjective/open-ended and a binary judgment doesn't apply
+  return `You are grading a student's answers to multiple exam questions in one pass.
+
+${questionsBlock}
+
+For EACH question above, evaluate the answer and provide:
+1. questionId: copy the exact id given above for that question
+2. score: marks awarded, as a number, not exceeding the maximum
+3. maxScore: the maximum marks for this question
+4. feedback: 1-3 sentences of specific, constructive feedback explaining what was right or wrong
+5. isCorrect: true if fully correct, false if fully incorrect, null if partially correct or the question is subjective/open-ended and a binary judgment doesn't apply
 
 Be fair and consistent. For multiple-choice questions, award full or zero marks based on whether the correct option was selected. For descriptive questions, award partial credit for partially correct reasoning.
 
-Return ONLY valid JSON matching the required schema. No markdown, no commentary.`;
+Return ONLY valid JSON matching the required schema: an object with a "results" array containing exactly one entry per question above, in the same order. No markdown, no commentary.`;
 }
 
 function stripCodeFences(text: string): string {
@@ -36,49 +52,48 @@ function stripCodeFences(text: string): string {
 }
 
 export async function POST(request: Request) {
-  let body: GradeRequestBody;
+  let body: GradeBatchRequestBody;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const questionText = body.questionText;
-  const questionMarks = body.questionMarks ?? null;
-  const answerText = body.answerText;
-
-  if (!questionText) {
-    return NextResponse.json({ error: "questionText is required." }, { status: 400 });
+  const items = body.items;
+  if (!Array.isArray(items)) {
+    return NextResponse.json({ error: "items must be an array." }, { status: 400 });
   }
 
-  if (!answerText || !answerText.trim()) {
-    return NextResponse.json(
-      {
-        score: 0,
-        maxScore: questionMarks ?? 1,
-        feedback: "No answer provided.",
-        isCorrect: false,
-      },
-      { status: 200 }
-    );
+  if (items.length === 0) {
+    return NextResponse.json({ results: [] }, { status: 200 });
   }
 
   try {
     const ai = getGeminiClient();
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: buildPrompt(questionText, questionMarks, answerText),
+      contents: buildPrompt(items),
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.NUMBER },
-            maxScore: { type: Type.NUMBER },
-            feedback: { type: Type.STRING },
-            isCorrect: { type: Type.BOOLEAN, nullable: true },
+            results: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  questionId: { type: Type.STRING },
+                  score: { type: Type.NUMBER },
+                  maxScore: { type: Type.NUMBER },
+                  feedback: { type: Type.STRING },
+                  isCorrect: { type: Type.BOOLEAN, nullable: true },
+                },
+                required: ["questionId", "score", "maxScore", "feedback", "isCorrect"],
+              },
+            },
           },
-          required: ["score", "maxScore", "feedback", "isCorrect"],
+          required: ["results"],
         },
       },
     });
@@ -96,7 +111,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = GradeResultSchema.safeParse(parsedJson);
+    const result = GradeBatchResponseSchema.safeParse(parsedJson);
     if (!result.success) {
       console.error(
         "[grade] Gemini response failed schema validation:",
@@ -119,7 +134,7 @@ export async function POST(request: Request) {
       );
     }
     return NextResponse.json(
-      { error: "Failed to grade this answer. Please retry." },
+      { error: "Failed to grade these answers. Please retry." },
       { status: 500 }
     );
   }

@@ -3,6 +3,10 @@ import { Type, type Part } from "@google/genai";
 import { GEMINI_MODEL, getGeminiClient, isRateLimitError, stripDataUrlPrefix } from "@/lib/gemini";
 import { AnswersResponseSchema } from "@/lib/schemas";
 
+// Large multi-page answer sheets (e.g. 30+ page scans) can take Gemini well
+// past a default serverless timeout to process in one request.
+export const maxDuration = 60;
+
 function buildPrompt(pageCount: number): string {
   return `You are analyzing a student's handwritten answer sheet, provided as one or more page images in order. There are ${pageCount} page(s) total, indexed from 0.
 

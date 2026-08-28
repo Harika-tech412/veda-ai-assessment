@@ -3,6 +3,10 @@ import { Type, type Part } from "@google/genai";
 import { GEMINI_MODEL, getGeminiClient, isRateLimitError, stripDataUrlPrefix } from "@/lib/gemini";
 import { QuestionsResponseSchema } from "@/lib/schemas";
 
+// Large multi-page question papers can take Gemini well past a default
+// serverless timeout to process in one request.
+export const maxDuration = 60;
+
 const PROMPT = `You are analyzing a printed exam question paper spanning one or more pages, provided as images in order.
 
 Extract every question in the exact order they appear. Follow these rules precisely:
