@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Type, type Part } from "@google/genai";
-import { GEMINI_MODEL, getGeminiClient, stripDataUrlPrefix } from "@/lib/gemini";
+import { GEMINI_MODEL, getGeminiClient, isRateLimitError, stripDataUrlPrefix } from "@/lib/gemini";
 import { AnswersResponseSchema } from "@/lib/schemas";
 
 function buildPrompt(pageCount: number): string {
@@ -138,6 +138,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ answers: result.data.answers }, { status: 200 });
   } catch (error) {
     console.error("[extract-answers] Gemini call failed:", error);
+    if (isRateLimitError(error)) {
+      return NextResponse.json(
+        { error: "Rate limit reached, please wait a moment and retry." },
+        { status: 429 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to extract answers. Please retry." },
       { status: 500 }

@@ -1,6 +1,7 @@
 {
   "name": "veda-ai-assessment",
   "version": "0.1.0",
+  "description": "Upload a question paper and a student's handwritten answer sheet; Gemini extracts questions and answers, maps them, and lets a teacher click a question to see exactly where the student answered it.",
   "private": true,
   "scripts": {
     "dev": "next dev",

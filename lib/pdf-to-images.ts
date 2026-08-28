@@ -13,7 +13,15 @@ async function getPdfjs() {
   return pdfjsLib;
 }
 
-export async function convertPdfToImages(file: File): Promise<PageImage[]> {
+export type PdfConversionProgress = {
+  current: number;
+  total: number;
+};
+
+export async function convertPdfToImages(
+  file: File,
+  onProgress?: (progress: PdfConversionProgress) => void
+): Promise<PageImage[]> {
   const pdfjsLib = await getPdfjs();
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
@@ -38,6 +46,7 @@ export async function convertPdfToImages(file: File): Promise<PageImage[]> {
           width: canvas.width,
           height: canvas.height,
         });
+        onProgress?.({ current: pageNumber, total: pdf.numPages });
       } finally {
         page.cleanup();
       }

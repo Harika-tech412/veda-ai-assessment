@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Type } from "@google/genai";
-import { GEMINI_MODEL, getGeminiClient } from "@/lib/gemini";
+import { GEMINI_MODEL, getGeminiClient, isRateLimitError } from "@/lib/gemini";
 import { GradeResultSchema } from "@/lib/schemas";
 
 type GradeRequestBody = {
@@ -112,6 +112,12 @@ export async function POST(request: Request) {
     return NextResponse.json(result.data, { status: 200 });
   } catch (error) {
     console.error("[grade] Gemini call failed:", error);
+    if (isRateLimitError(error)) {
+      return NextResponse.json(
+        { error: "Rate limit reached, please wait a moment and retry." },
+        { status: 429 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to grade this answer. Please retry." },
       { status: 500 }

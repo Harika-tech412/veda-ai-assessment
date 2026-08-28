@@ -27,6 +27,7 @@ type UploadDropzoneProps = {
   accentLabel: string;
   fileSet: FileSet;
   errorMessage: string | null;
+  conversionProgress?: { current: number; total: number } | null;
   onFileAccepted: (file: File) => void;
   onRemove: () => void;
 };
@@ -36,6 +37,7 @@ export function UploadDropzone({
   accentLabel,
   fileSet,
   errorMessage,
+  conversionProgress,
   onFileAccepted,
   onRemove,
 }: UploadDropzoneProps) {
@@ -84,7 +86,7 @@ export function UploadDropzone({
         <div
           {...getRootProps()}
           className={cn(
-            "flex h-[220px] flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border-dashed bg-surface px-6 text-center transition-colors",
+            "flex h-[220px] flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border-dashed bg-surface px-6 text-center transition-colors hover:border-accent-ring hover:bg-accent-light/10",
             isDragActive && "border-accent bg-accent-light/40"
           )}
         >
@@ -102,7 +104,11 @@ export function UploadDropzone({
       {isConverting && (
         <div className="flex h-[220px] flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-surface px-6 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-accent" />
-          <p className="text-sm font-semibold text-ink">Processing {title}…</p>
+          <p className="text-sm font-semibold text-ink">
+            {conversionProgress && conversionProgress.total > 1
+              ? `Converting page ${conversionProgress.current} of ${conversionProgress.total}…`
+              : `Processing ${title}…`}
+          </p>
           <p className="max-w-[85%] truncate text-xs text-muted">{fileSet.fileName}</p>
         </div>
       )}

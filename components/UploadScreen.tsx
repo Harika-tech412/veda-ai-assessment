@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, GraduationCap, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
-import { convertPdfToImages } from "@/lib/pdf-to-images";
+import { convertPdfToImages, type PdfConversionProgress } from "@/lib/pdf-to-images";
 import { convertImageToPages } from "@/lib/image-to-dataurl";
 import { matchAnswersToQuestions } from "@/lib/matching";
 import { UploadDropzone } from "@/components/UploadDropzone";
@@ -17,8 +17,13 @@ function isPdfFile(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-async function convertFileToPages(file: File): Promise<PageImage[]> {
-  return isPdfFile(file) ? convertPdfToImages(file) : convertImageToPages(file);
+async function convertFileToPages(
+  file: File,
+  onProgress?: (progress: PdfConversionProgress) => void
+): Promise<PageImage[]> {
+  return isPdfFile(file)
+    ? convertPdfToImages(file, onProgress)
+    : convertImageToPages(file);
 }
 
 export function UploadScreen() {
@@ -38,6 +43,10 @@ export function UploadScreen() {
   const [answerSheetError, setAnswerSheetError] = useState<string | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [answersError, setAnswersError] = useState<string | null>(null);
+  const [questionPaperProgress, setQuestionPaperProgress] =
+    useState<PdfConversionProgress | null>(null);
+  const [answerSheetProgress, setAnswerSheetProgress] =
+    useState<PdfConversionProgress | null>(null);
 
   const isConvertingQuestionPaper =
     questionPaper.fileName !== null && questionPaper.pages.length === 0;
@@ -61,13 +70,16 @@ export function UploadScreen() {
       const setFileSet = kind === "questionPaper" ? setQuestionPaper : setAnswerSheet;
       const setFileError =
         kind === "questionPaper" ? setQuestionPaperError : setAnswerSheetError;
+      const setProgress =
+        kind === "questionPaper" ? setQuestionPaperProgress : setAnswerSheetProgress;
 
       setFileError(null);
+      setProgress(null);
       setFileSet({ fileName: file.name, fileSize: file.size, pages: [] });
       setProcessingStage("uploading");
 
       try {
-        const pages = await convertFileToPages(file);
+        const pages = await convertFileToPages(file, setProgress);
         setFileSet({ fileName: file.name, fileSize: file.size, pages });
       } catch (error) {
         console.error(`[${kind}] conversion failed`, error);
@@ -75,6 +87,8 @@ export function UploadScreen() {
           error instanceof Error ? error.message : "Failed to process this file."
         );
         setFileSet({ fileName: null, fileSize: null, pages: [] });
+      } finally {
+        setProgress(null);
       }
     },
     [setQuestionPaper, setAnswerSheet, setProcessingStage]
@@ -85,8 +99,11 @@ export function UploadScreen() {
       const setFileSet = kind === "questionPaper" ? setQuestionPaper : setAnswerSheet;
       const setFileError =
         kind === "questionPaper" ? setQuestionPaperError : setAnswerSheetError;
+      const setProgress =
+        kind === "questionPaper" ? setQuestionPaperProgress : setAnswerSheetProgress;
       setFileSet({ fileName: null, fileSize: null, pages: [] });
       setFileError(null);
+      setProgress(null);
     },
     [setQuestionPaper, setAnswerSheet]
   );
@@ -109,8 +126,15 @@ export function UploadScreen() {
         throw new Error(data.error ?? "Failed to extract questions.");
       }
 
-      setQuestions(data.questions);
-      return data.questions as Question[];
+      const extractedQuestions = data.questions as Question[];
+      if (extractedQuestions.length === 0) {
+        throw new Error(
+          "No questions could be extracted. Please check your file and try again."
+        );
+      }
+
+      setQuestions(extractedQuestions);
+      return extractedQuestions;
     } catch (error) {
       setExtractionError(
         error instanceof Error ? error.message : "Failed to extract questions."
@@ -212,6 +236,7 @@ export function UploadScreen() {
             accentLabel="Question Paper"
             fileSet={questionPaper}
             errorMessage={questionPaperError}
+            conversionProgress={questionPaperProgress}
             onFileAccepted={(file) => handleFile("questionPaper", file)}
             onRemove={() => handleRemove("questionPaper")}
           />
@@ -220,6 +245,7 @@ export function UploadScreen() {
             accentLabel="Student Answer Sheet"
             fileSet={answerSheet}
             errorMessage={answerSheetError}
+            conversionProgress={answerSheetProgress}
             onFileAccepted={(file) => handleFile("answerSheet", file)}
             onRemove={() => handleRemove("answerSheet")}
           />

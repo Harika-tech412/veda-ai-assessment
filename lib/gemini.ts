@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { ApiError, GoogleGenAI } from "@google/genai";
 
 export const GEMINI_MODEL = "gemini-3.6-flash";
 
@@ -13,6 +13,10 @@ export function getGeminiClient(): GoogleGenAI {
     client = new GoogleGenAI({ apiKey });
   }
   return client;
+}
+
+export function isRateLimitError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 429;
 }
 
 export function stripDataUrlPrefix(dataUrl: string): {
