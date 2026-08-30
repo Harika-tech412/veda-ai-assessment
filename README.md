@@ -2,7 +2,7 @@
 
 A teacher uploads a question paper and one student's handwritten answer sheet (PDF or images). The app extracts every question and every handwritten answer with Gemini, matches them up automatically, grades every answered question, and lets the teacher click any question to see exactly where on the answer sheet the student answered it — with an AI first-pass score and feedback shown inline.
 
-**Deployed at:** _[URL] — add after deploying to Vercel_
+**Deployed at:** _https://veda-ai-assessment-theta.vercel.app/_
 
 ## How it works (non-technical, 1 minute)
 
